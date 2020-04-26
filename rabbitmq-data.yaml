@@ -12,7 +12,7 @@ spec:
     persistentVolumeReclaimPolicy: Retain
     nfs:
       path: /data/rabbitmq
-      server: 192.168.15.4
+      server: 192.168.1.1    ##nfs server ip
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
