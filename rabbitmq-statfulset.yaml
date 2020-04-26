@@ -1,0 +1,92 @@
+# 使用apps/v1版本代替apps/v1beta
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq  
+spec:
+  serviceName: rabbitmq-headless   # 必须与headless service的name相同，用于hostname传播访问pod
+  selector:
+    matchLabels:
+      app: rabbitmq # 在apps/v1中，需与 .spec.template.metadata.label 相同，用于hostname传播访问pod，而在apps/v1beta中无需这样做
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: rabbitmq  # 在apps/v1中，需与 .spec.selector.matchLabels 相同
+      # 设置podAntiAffinity
+      annotations:
+        scheduler.alpha.kubernetes.io/affinity: >
+            {
+              "podAntiAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": [{
+                  "labelSelector": {
+                    "matchExpressions": [{
+                      "key": "app",
+                      "operator": "In",
+                      "values": ["rabbitmq"]
+                    }]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }]
+              }
+            }
+    spec:
+      serviceAccountName: rabbitmq
+      terminationGracePeriodSeconds: 10
+      containers:        
+      - name: rabbitmq
+        image: 192.168.15.1:5000/rabbitmq3.7.1
+        resources:
+          limits:
+            cpu: 0.5
+            memory: 2Gi
+          requests:
+            cpu: 0.3
+            memory: 2Gi
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/rabbitmq
+          - name: rabbitmq-data
+            mountPath: /var/lib/rabbitmq/mnesia
+        ports:
+          - name: http
+            protocol: TCP
+            containerPort: 15672
+          - name: amqp
+            protocol: TCP
+            containerPort: 5672
+        env:
+          - name: HOSTNAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: RABBITMQ_USE_LONGNAME
+            value: "true"
+          - name: K8S_SERVICE_NAME
+            value: "rabbitmq-headless"  
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        ## POD 命名空间
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace  
+          - name: RABBITMQ_NODENAME
+            value:  rabbit@$(HOSTNAME).$(K8S_SERVICE_NAME).$(POD_NAMESPACE).svc.cluster.local
+          # 若在ConfigMap中设置了service_name，则此处无需再次设置
+          - name: RABBITMQ_ERLANG_COOKIE
+            value: "mycookie" 
+      volumes:
+        - name: config-volume
+          configMap:
+            name: rabbitmq-config
+            items:
+            - key: rabbitmq.conf
+              path: rabbitmq.conf
+            - key: enabled_plugins
+              path: enabled_plugins
+        - name: rabbitmq-data
+          persistentVolumeClaim:
+            claimName: rabbitmq-data-claim
